@@ -68,6 +68,8 @@ namespace libdnf {
 
 typedef ::Repo LibsolvRepo;
 
+int random_bit_perm(int size, int ones);
+
 class Key {
 public:
     Key(gpgme_key_t key, gpgme_subkey_t subkey)

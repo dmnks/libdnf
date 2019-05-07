@@ -37,11 +37,11 @@
  * containing changelogs for packages */
 #define MD_TYPE_OTHER "other"
 
-// width of the sliding window used for check-ins (in seconds)
-#define CHECK_IN_WINDOW (7*24*60*60)  // one week
-// starting point of the sliding window (in seconds since epoch)
-// allows for aligning the window with a specific weekday
-#define CHECK_IN_OFFSET (345600)  // 1970-01-05 00:00:00 UTC (Monday)
+#define CHECK_IN_EPOCH (345600)  // 1970-01-05 00:00:00 UTC (Monday)
+#define CHECK_IN_UNIT (60*60)
+#define CHECK_IN_WINDOW (7*24)
+#define CHECK_IN_BLOCK (24)
+#define CHECK_IN_SLOTS (8)
 #define CHECK_IN_COOKIE "lastcheckin"
 #define CHECK_IN_PARAM "countme"
 #define CHECK_IN_CUTOFF (60)  // maximum window index to report
@@ -91,6 +91,9 @@
 #include <time.h>
 
 #include <glib.h>
+#include <math.h>
+#include <bitset>
+#include <random>
 
 namespace std {
 
@@ -462,60 +465,83 @@ std::string Repo::getMetadataContent(const std::string &metadataType)
     return content;
 }
 
+template<std::size_t N>
+void set_random_bits(std::bitset<N> &bs, int count) {
+    int size = bs.size();
+    bool negate = false;
+    if (count > size / 2) {
+        count = size - count;
+        negate = true;
+    }
+    std::random_device rd;
+    std::default_random_engine gen(rd());
+    for (int i = size - count; i < size; i++) {
+        std::uniform_int_distribution<int> dist(0, i);
+        int pos = dist(gen);
+        if (bs[pos]) bs.set(i);
+        else bs.set(pos);
+    }
+    if (negate) bs = ~bs;
+}
+
 bool Repo::Impl::checkIn()
 {
-    if (!conf->countme().getValue()) {
-        return false;
-    }
+    if (!conf->countme().getValue()) return false;
 
-    long int epoch = CHECK_IN_OFFSET;   // first window we checked-in from this system
-    long int idx = 0;                   // window index (since epoch)
-    long int pos = 0;                   // window position on the time axis
-    long int now = time(NULL);
+    // load the last window
+    time_t epoch = CHECK_IN_EPOCH;
+    int start = 0;
+    std::bitset<CHECK_IN_WINDOW> window; window.set();
     std::string cookieFn = getPersistdir() + "/" + CHECK_IN_COOKIE;
-
-    // load the epoch and last window (if any)
-    std::ifstream(cookieFn) >> epoch >> pos;
+    std::ifstream(cookieFn) >> epoch >> start >> window;
 
     // bail out if the window has not advanced since
-    if ((now - pos) <= CHECK_IN_WINDOW) {
-        return false;
-    }
-    
+    time_t now = (time(NULL) - epoch) / CHECK_IN_UNIT;
+    time_t delta = now - start;
+    if (delta <= CHECK_IN_WINDOW) return false;
+
+    // bail out if this is not our allocated slot
+    time_t offset = delta % CHECK_IN_WINDOW;
+    if (!window[offset]) return false;
+
     // compute the new window
-    long int age = now - epoch;
-    pos = now - (age % CHECK_IN_WINDOW);
-    if (epoch > CHECK_IN_OFFSET) {
-        // epoch already started
-        idx = age / CHECK_IN_WINDOW;
-    } else {
-        // start the epoch
-        epoch = pos;
+    start = now - offset;
+    int idx = now / CHECK_IN_WINDOW;
+    if (epoch == CHECK_IN_EPOCH) {
+        epoch += start * CHECK_IN_UNIT;
+        start = 0;
+        idx = 0;
     }
 
     // perform the "ping"
-    auto metalink = conf->metalink();
-    std::string url;
-    if (metalink.empty() || (url = metalink.getValue()).empty()) {
-        return false;
-    }
-    if (url.find('?') != url.npos) {
-        url += '&';
-    } else {
-        url += '?';
-    }
-    url += CHECK_IN_PARAM "=";
-    if (idx <= CHECK_IN_CUTOFF) {
-        url += std::to_string(idx);
-    } else {
-        url += std::to_string(CHECK_IN_CUTOFF) + "+";
-    }
-    int fd = open("/dev/null", O_RDWR);
-    downloadUrl(url.c_str(), fd);
-    close(fd);
+    /* auto metalink = conf->metalink(); */
+    /* std::string url; */
+    /* if (metalink.empty() || (url = metalink.getValue()).empty()) { */
+    /*     return false; */
+    /* } */
+    /* if (url.find('?') != url.npos) { */
+    /*     url += '&'; */
+    /* } else { */
+    /*     url += '?'; */
+    /* } */
+    /* url += CHECK_IN_PARAM "="; */
+    /* if (idx <= CHECK_IN_CUTOFF) { */
+    /*     url += std::to_string(idx); */
+    /* } else { */
+    /*     url += std::to_string(CHECK_IN_CUTOFF) + "+"; */
+    /* } */
+    /* int fd = open("/dev/null", O_RDWR); */
+    /* downloadUrl(url.c_str(), fd); */
+    /* close(fd); */
 
-    // store the new window
-    std::ofstream(cookieFn) << epoch << " " << pos;
+    std::ofstream ofs(cookieFn);
+    ofs << epoch << " " << start << " ";
+    int blocks = CHECK_IN_WINDOW / CHECK_IN_BLOCK;
+    for (int i = 0; i < blocks; i++) {
+        std::bitset<CHECK_IN_BLOCK> block;
+        set_random_bits(block, CHECK_IN_SLOTS);
+        ofs << block;
+    }
 
     return true;
 }
