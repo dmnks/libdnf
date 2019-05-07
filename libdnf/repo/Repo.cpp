@@ -490,27 +490,24 @@ bool Repo::Impl::checkIn()
 
     // load the last window
     time_t epoch = CHECK_IN_EPOCH;
-    int start = 0;
+    int idx = 0;
     std::bitset<CHECK_IN_WINDOW> window; window.set();
     std::string cookieFn = getPersistdir() + "/" + CHECK_IN_COOKIE;
-    std::ifstream(cookieFn) >> epoch >> start >> window;
+    std::ifstream(cookieFn) >> epoch >> idx >> window;
 
     // bail out if the window has not advanced since
     time_t now = (time(NULL) - epoch) / CHECK_IN_UNIT;
-    time_t delta = now - start;
-    if (delta <= CHECK_IN_WINDOW) return false;
+    int newidx = now / CHECK_IN_WINDOW;
+    if (newidx == idx) return false;
 
     // bail out if this is not our allocated slot
-    time_t offset = delta % CHECK_IN_WINDOW;
+    time_t offset = now % CHECK_IN_WINDOW;
     if (!window[offset]) return false;
 
     // compute the new window
-    start = now - offset;
-    int idx = now / CHECK_IN_WINDOW;
     if (epoch == CHECK_IN_EPOCH) {
-        epoch += start * CHECK_IN_UNIT;
-        start = 0;
-        idx = 0;
+        epoch += newidx * CHECK_IN_WINDOW * CHECK_IN_UNIT;
+        newidx = 0;
     }
 
     // perform the "ping"
@@ -535,7 +532,7 @@ bool Repo::Impl::checkIn()
     /* close(fd); */
 
     std::ofstream ofs(cookieFn);
-    ofs << epoch << " " << start << " ";
+    ofs << epoch << " " << newidx << " ";
     int blocks = CHECK_IN_WINDOW / CHECK_IN_BLOCK;
     for (int i = 0; i < blocks; i++) {
         std::bitset<CHECK_IN_BLOCK> block;
