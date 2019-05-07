@@ -37,14 +37,24 @@
  * containing changelogs for packages */
 #define MD_TYPE_OTHER "other"
 
-#define CHECK_IN_EPOCH (345600)  // 1970-01-05 00:00:00 UTC (Monday)
-#define CHECK_IN_UNIT (60*60)
-#define CHECK_IN_WINDOW (7*24)
+// CHECK-IN MACROS
+// starting point of the sliding window relative to the UNIX epoch
+// allows for aligning the window with a specific weekday
+#define CHECK_IN_EPOCH (345600)  // Monday (1970-01-05 00:00:00 UTC)
+// smallest unit of time (in seconds) used to define windows and allocate slots
+#define CHECK_IN_UNIT (60*60)  // 1 hour
+// width of the sliding window (in units)
+#define CHECK_IN_WINDOW (7*24)  // 1 week
+// slot allocation block (in units)
 #define CHECK_IN_BLOCK (24)
+// number of slots (in units) to allocate in a single block
 #define CHECK_IN_SLOTS (8)
+// filename of the check-in cache file
 #define CHECK_IN_CACHE "check_in"
+// URL query parameter to store the window index into
 #define CHECK_IN_PARAM "countme"
-#define CHECK_IN_CUTOFF (60)  // maximum number of windows to report
+// maximum number of windows to report
+#define CHECK_IN_CUTOFF (60)
 
 #include "../log.hpp"
 #include "Repo-private.hpp"
@@ -491,9 +501,9 @@ bool Repo::Impl::checkIn()
     // load the cache file
     time_t epoch = CHECK_IN_EPOCH;
     int idx = 0;
-    std::bitset<CHECK_IN_WINDOW> alloc; alloc.set();
+    std::bitset<CHECK_IN_WINDOW> window; window.set();
     std::string fname = getPersistdir() + "/" + CHECK_IN_CACHE;
-    std::ifstream(fname) >> epoch >> idx >> alloc;
+    std::ifstream(fname) >> epoch >> idx >> window;
 
     // bail out if the window has not advanced since
     time_t now = (time(NULL) - epoch) / CHECK_IN_UNIT;
@@ -502,7 +512,7 @@ bool Repo::Impl::checkIn()
 
     // bail out if this is not our allocated slot
     time_t offset = now % CHECK_IN_WINDOW;
-    if (!alloc[offset]) return false;
+    if (!window[offset]) return false;
 
     // compute the new window
     if (epoch == CHECK_IN_EPOCH) {
