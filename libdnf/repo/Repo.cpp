@@ -42,7 +42,7 @@
 #define CHECK_IN_WINDOW (7*24)
 #define CHECK_IN_BLOCK (24)
 #define CHECK_IN_SLOTS (8)
-#define CHECK_IN_COOKIE "lastcheckin"
+#define CHECK_IN_CACHE "check_in"
 #define CHECK_IN_PARAM "countme"
 #define CHECK_IN_CUTOFF (60)  // maximum number of windows to report
 
@@ -488,12 +488,12 @@ bool Repo::Impl::checkIn()
 {
     if (!conf->countme().getValue()) return false;
 
-    // load the last window
+    // load the cache file
     time_t epoch = CHECK_IN_EPOCH;
     int idx = 0;
-    std::bitset<CHECK_IN_WINDOW> window; window.set();
-    std::string cookieFn = getPersistdir() + "/" + CHECK_IN_COOKIE;
-    std::ifstream(cookieFn) >> epoch >> idx >> window;
+    std::bitset<CHECK_IN_WINDOW> alloc; alloc.set();
+    std::string fname = getPersistdir() + "/" + CHECK_IN_CACHE;
+    std::ifstream(fname) >> epoch >> idx >> alloc;
 
     // bail out if the window has not advanced since
     time_t now = (time(NULL) - epoch) / CHECK_IN_UNIT;
@@ -502,7 +502,7 @@ bool Repo::Impl::checkIn()
 
     // bail out if this is not our allocated slot
     time_t offset = now % CHECK_IN_WINDOW;
-    if (!window[offset]) return false;
+    if (!alloc[offset]) return false;
 
     // compute the new window
     if (epoch == CHECK_IN_EPOCH) {
@@ -513,9 +513,7 @@ bool Repo::Impl::checkIn()
     // perform the "ping"
     auto metalink = conf->metalink();
     std::string url;
-    if (metalink.empty() || (url = metalink.getValue()).empty()) {
-        return false;
-    }
+    if (metalink.empty() || (url = metalink.getValue()).empty()) return false;
     if (url.find('?') != url.npos) {
         url += '&';
     } else {
@@ -531,8 +529,10 @@ bool Repo::Impl::checkIn()
     downloadUrl(url.c_str(), fd);
     close(fd);
 
-    std::ofstream ofs(cookieFn);
+    // update the cache file
+    std::ofstream ofs(fname);
     ofs << epoch << " " << newidx << " ";
+    // generate a new slot allocation
     int blocks = CHECK_IN_WINDOW / CHECK_IN_BLOCK;
     for (int i = 0; i < blocks; i++) {
         std::bitset<CHECK_IN_BLOCK> block;
