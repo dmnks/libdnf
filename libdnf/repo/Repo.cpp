@@ -44,7 +44,7 @@
 #define CHECK_IN_SLOTS (8)
 #define CHECK_IN_COOKIE "lastcheckin"
 #define CHECK_IN_PARAM "countme"
-#define CHECK_IN_CUTOFF (60)  // maximum window index to report
+#define CHECK_IN_CUTOFF (60)  // maximum number of windows to report
 
 #include "../log.hpp"
 #include "Repo-private.hpp"
@@ -511,25 +511,25 @@ bool Repo::Impl::checkIn()
     }
 
     // perform the "ping"
-    /* auto metalink = conf->metalink(); */
-    /* std::string url; */
-    /* if (metalink.empty() || (url = metalink.getValue()).empty()) { */
-    /*     return false; */
-    /* } */
-    /* if (url.find('?') != url.npos) { */
-    /*     url += '&'; */
-    /* } else { */
-    /*     url += '?'; */
-    /* } */
-    /* url += CHECK_IN_PARAM "="; */
-    /* if (idx <= CHECK_IN_CUTOFF) { */
-    /*     url += std::to_string(idx); */
-    /* } else { */
-    /*     url += std::to_string(CHECK_IN_CUTOFF) + "+"; */
-    /* } */
-    /* int fd = open("/dev/null", O_RDWR); */
-    /* downloadUrl(url.c_str(), fd); */
-    /* close(fd); */
+    auto metalink = conf->metalink();
+    std::string url;
+    if (metalink.empty() || (url = metalink.getValue()).empty()) {
+        return false;
+    }
+    if (url.find('?') != url.npos) {
+        url += '&';
+    } else {
+        url += '?';
+    }
+    url += CHECK_IN_PARAM "=";
+    if (newidx < CHECK_IN_CUTOFF) {
+        url += std::to_string(newidx);
+    } else {
+        url += std::to_string(CHECK_IN_CUTOFF) + "+";
+    }
+    int fd = open("/dev/null", O_RDWR);
+    downloadUrl(url.c_str(), fd);
+    close(fd);
 
     std::ofstream ofs(cookieFn);
     ofs << epoch << " " << newidx << " ";
