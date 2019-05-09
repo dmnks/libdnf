@@ -264,19 +264,14 @@ public:
     *
     * Sends a "ping" to the server indicating the existence of this system and its longevity.
     *
-    * This is done by performing an HTTP GET request for the metalink URL (if available) with a
-    * special parameter added (see below).
+    * The "ping" consists of an HTTP GET request for the metalink URL (if available) with a special
+    * parameter added (described below).  This allows the repo owner to accurately count the
+    * systems consuming this repo.
     *
-    * To ensure privacy and prevent leakage of system-specific information (which could be used for
-    * tracking), we:
-    * TODO continue here
-    *
-    *
-    *
-    * To prevent overcount, a sliding time window (CHECK_IN_WINDOW) is defined in which only one
-    * check-in is allowed, regardless of how many times this method is called.  The window starts
-    * at CHECK_IN_OFFSET and moves along the time axis (1 step = CHECK_IN_WINDOW) in such a way
-    * that it always includes the current point in time.
+    * This method is designed to be called frequently, such as when the metadata is refreshed.  To
+    * prevent overcount, only one check-in will be performed within a sliding time window defined
+    * by the CHECK_IN_WINDOW macro.  The window starts at CHECK_IN_OFFSET and moves along the time
+    * axis (one width at a time) in such a way that it always includes the current point in time:
     *
     * UNIX epoch                    now
     * |                             |
@@ -284,20 +279,23 @@ public:
     *     |                       |
     *     CHECK_IN_OFFSET         window
     *
+    * The window is further divided into slots (CHECK_IN_SLOT), each having a "lucky" bit assigned.
+    * A check-in may only be performed if the current slot has the bit set.  There's a predefined
+    * amount of lucky bits that are randomly distributed for every window in advance.  To ensure
+    * uniform distribution, for every CHECK_IN_BLOCK slots there are exactly CHECK_IN_LUCKY bits
+    * set.
     *
+    * Using lucky slots ensures that we don't disclose any system-specific usage patterns (such as
+    * automatic metadata updates scheduled to occur every N days) which could be used to identify
+    * this system over multiple check-in records by correlating them based on time commonalities.
     *
-    * Note that we position the window relative to a pre-defined point in time (CHECK_IN_OFFSET),
-    * rather than to the very first check-in time.  The reason is that the latter is
-    * system-specific information that, given a predictable and sufficiently high cadence at which
-    * this method is called, could be revealed to the server and, in theory, used to track this
-    * system over a number of check-in records by correlating them based on time commonalities.
+    * The reason we pre-generate the lucky slots instead of simply "flipping a coin" on every
+    * method call is to "reward" systems with a long uptime (since the probability of hitting a
+    * lucky slot increases with every slot lived through).
     *
     * The parameter added to the HTTP request is an integer representing the current window index
     * (that is, the number of windows elapsed since the very first check-in).  However, for privacy
-    * reasons, values higher than CHECK_IN_CUTOFF are reported as CHECK_IN_CUTOFF+.
-    *
-    * The window position and index are stored in a per-repo cookie file in PERSISTDIR upon a
-    * successful check-in.
+    * reasons, values equal or higher than CHECK_IN_CUTOFF are reported as CHECK_IN_CUTOFF+.
     *
     * @return bool whether a successful check-in was performed
     */
