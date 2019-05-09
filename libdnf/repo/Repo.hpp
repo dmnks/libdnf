@@ -262,23 +262,29 @@ public:
     /**
     * @brief Check in with the repository server for statistical purposes.
     *
-    * Sends a "ping" to the server indicating that this system is alive and how old it is.
+    * Sends a "ping" to the server indicating the existence of this system and its longevity.
     *
     * This is done by performing an HTTP GET request for the metalink URL (if available) with a
     * special parameter added (see below).
     *
-    * This method is intended to be called periodically, such as from a systemd timer.
+    * To ensure privacy and prevent leakage of system-specific information (which could be used for
+    * tracking), we:
+    * TODO continue here
+    *
+    *
     *
     * To prevent overcount, a sliding time window (CHECK_IN_WINDOW) is defined in which only one
     * check-in is allowed, regardless of how many times this method is called.  The window starts
     * at CHECK_IN_OFFSET and moves along the time axis (1 step = CHECK_IN_WINDOW) in such a way
-    * that the current point in time stays inside:
+    * that it always includes the current point in time.
     *
     * UNIX epoch                    now
     * |                             |
     * |---*-----|-----|-----|-----[-*---]---> time
     *     |                       |
     *     CHECK_IN_OFFSET         window
+    *
+    *
     *
     * Note that we position the window relative to a pre-defined point in time (CHECK_IN_OFFSET),
     * rather than to the very first check-in time.  The reason is that the latter is
