@@ -40,7 +40,7 @@
 // CHECK-IN MACROS
 // starting point of the sliding window relative to the UNIX epoch
 // allows for aligning the window with a specific weekday
-#define CHECK_IN_EPOCH (345600)  // Monday (1970-01-05 00:00:00 UTC)
+#define CHECK_IN_OFFSET (345600)  // Monday (1970-01-05 00:00:00 UTC)
 // smallest unit of time (in seconds) used to define windows and allocate slots
 #define CHECK_IN_UNIT (60*60)  // 1 hour
 // width of the sliding window (in units)
@@ -499,8 +499,8 @@ bool Repo::Impl::checkIn()
     if (!conf->countme().getValue()) return false;
 
     // load the cache file
-    time_t epoch = CHECK_IN_EPOCH;
-    int idx = 0;
+    time_t epoch = CHECK_IN_OFFSET;     // the first-ever check-in of this system
+    int idx = 0;                        // window index (relative to epoch)
     std::bitset<CHECK_IN_WINDOW> window; window.set();
     std::string fname = getPersistdir() + "/" + CHECK_IN_CACHE;
     std::ifstream(fname) >> epoch >> idx >> window;
@@ -515,7 +515,7 @@ bool Repo::Impl::checkIn()
     if (!window[offset]) return false;
 
     // compute the new window
-    if (epoch == CHECK_IN_EPOCH) {
+    if (epoch == CHECK_IN_OFFSET) {
         epoch += newidx * CHECK_IN_WINDOW * CHECK_IN_UNIT;
         newidx = 0;
     }
