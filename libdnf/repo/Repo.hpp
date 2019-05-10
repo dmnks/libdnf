@@ -262,7 +262,7 @@ public:
     /**
     * @brief Check in with the repository server for statistical purposes.
     *
-    * Sends a "ping" to the server indicating the existence of this system and its longevity.
+    * Sends a "ping" to the server indicating the existence of this system and its age.
     *
     * The "ping" consists of an HTTP GET request for the metalink URL (if available) with a special
     * parameter added (described below).  This allows the repo owner to accurately count the

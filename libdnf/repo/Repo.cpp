@@ -38,17 +38,17 @@
 #define MD_TYPE_OTHER "other"
 
 // CHECK-IN MACROS
+// width of the sliding window (in seconds)
+#define CHECK_IN_WINDOW (7*24*60*60)  // 1 week
 // starting point of the sliding window relative to the UNIX epoch
 // allows for aligning the window with a specific weekday
 #define CHECK_IN_OFFSET (345600)  // Monday (1970-01-05 00:00:00 UTC)
-// smallest unit of time (in seconds) used to define windows and allocate slots
-#define CHECK_IN_UNIT (60*60)  // 1 hour
-// width of the sliding window (in units)
-#define CHECK_IN_WINDOW (7*24)  // 1 week
-// slot allocation block (in units)
-#define CHECK_IN_BLOCK (24)
-// number of slots (in units) to allocate in a single block
-#define CHECK_IN_SLOTS (8)
+// slot width (in seconds)
+#define CHECK_IN_SLOT (60*60)  // 1 hour
+// number of slots forming a block
+#define CHECK_IN_BLOCK (24)  // 1 day
+// lucky slots per block
+#define CHECK_IN_LUCKY (8)
 // filename of the check-in cache file
 #define CHECK_IN_CACHE "check_in"
 // URL query parameter to store the window index into
@@ -499,25 +499,29 @@ bool Repo::Impl::checkIn()
     if (!conf->countme().getValue()) return false;
 
     // load the cache file
-    time_t epoch = CHECK_IN_OFFSET;     // the first-ever check-in of this system
-    int idx = 0;                        // window index (relative to epoch)
+    time_t epoch = 0;               // position of first-ever checked-in window
+    time_t pos = CHECK_IN_OFFSET;   // position of last checked-in window
     std::bitset<CHECK_IN_WINDOW> window; window.set();
     std::string fname = getPersistdir() + "/" + CHECK_IN_CACHE;
-    std::ifstream(fname) >> epoch >> idx >> window;
+    std::ifstream(fname) >> epoch >> pos >> window;
 
     // bail out if the window has not advanced since
-    time_t now = (time(NULL) - epoch) / CHECK_IN_UNIT;
-    int newidx = now / CHECK_IN_WINDOW;
-    if (newidx == idx) return false;
+    time_t now = time(NULL);
+    time_t delta = now - pos;
+    if (delta < CHECK_IN_WINDOW) return false;
 
-    // bail out if this is not our allocated slot
-    time_t offset = now % CHECK_IN_WINDOW;
-    if (!window[offset]) return false;
+    // bail out if this is not a lucky slot
+    int offset = delta % CHECK_IN_WINDOW;
+    int slot = offset / CHECK_IN_SLOT;
+    if (!window[slot]) return false;
 
     // compute the new window
-    if (epoch == CHECK_IN_OFFSET) {
-        epoch += newidx * CHECK_IN_WINDOW * CHECK_IN_UNIT;
-        newidx = 0;
+    pos = now - offset;
+    int idx = 0;
+    if (epoch) {
+        idx = (now - epoch) / CHECK_IN_WINDOW;
+    } else {
+        epoch = pos;
     }
 
     // perform the "ping"
@@ -530,8 +534,8 @@ bool Repo::Impl::checkIn()
         url += '?';
     }
     url += CHECK_IN_PARAM "=";
-    if (newidx < CHECK_IN_CUTOFF) {
-        url += std::to_string(newidx);
+    if (idx < CHECK_IN_CUTOFF) {
+        url += std::to_string(idx);
     } else {
         url += std::to_string(CHECK_IN_CUTOFF) + "+";
     }
@@ -541,12 +545,12 @@ bool Repo::Impl::checkIn()
 
     // update the cache file
     std::ofstream ofs(fname);
-    ofs << epoch << " " << newidx << " ";
-    // generate a new slot allocation
-    int blocks = CHECK_IN_WINDOW / CHECK_IN_BLOCK;
+    ofs << epoch << " " << pos << " ";
+    // generate a new lucky slot distribution
+    int blocks = CHECK_IN_WINDOW / (CHECK_IN_SLOT * CHECK_IN_BLOCK);
     for (int i = 0; i < blocks; i++) {
         std::bitset<CHECK_IN_BLOCK> block;
-        set_random_bits(block, CHECK_IN_SLOTS);
+        set_random_bits(block, CHECK_IN_LUCKY);
         ofs << block;
     }
 
