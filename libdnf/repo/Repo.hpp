@@ -262,40 +262,47 @@ public:
     /**
     * @brief Check in with the repository server for statistical purposes.
     *
-    * Sends a "ping" to the server indicating the existence of this system and its age.
+    * Sends a "ping" to the server indicating the existence of this system and its longevity.
     *
     * The "ping" consists of an HTTP GET request for the metalink URL (if available) with a special
-    * parameter added (described below).  This allows the repo owner to accurately count the
-    * systems consuming this repo.
+    * parameter added (see below).  This allows the repo owner to accurately count systems
+    * consuming this repo and analyze usage trends.  The metalink file received is not used and is
+    * discarded right away.
     *
-    * This method is designed to be called frequently, such as when the metadata is refreshed.  To
-    * prevent overcount, only one check-in will be performed within a sliding time window defined
-    * by the CHECK_IN_WINDOW macro.  The window starts at CHECK_IN_OFFSET and moves along the time
-    * axis (one width at a time) in such a way that it always includes the current point in time:
+    * This method is designed to be called often, preferably together with bigger fetch operations
+    * (such as metadata updates).  To prevent overcount, only one check-in will be performed within
+    * a time window of CHECK_IN_WINDOW seconds, regardless of how often this method is called.
     *
-    * UNIX epoch                    now
-    * |                             |
-    * |---*-----|-----|-----|-----[-*---]---> time
-    *     |                       |
-    *     CHECK_IN_OFFSET         window
+    * *** PRIVACY MEASURES ***
     *
-    * The window is further divided into slots (CHECK_IN_SLOT), each having a "lucky" bit assigned.
-    * A check-in may only be performed if the current slot has the bit set.  There's a predefined
-    * amount of lucky bits that are randomly distributed for every window in advance.  To ensure
-    * uniform distribution, for every CHECK_IN_BLOCK slots there are exactly CHECK_IN_LUCKY bits
-    * set.
+    * To prevent leakage of system-specific usage patterns that could be used for tracking, the
+    * following techniques are used:
     *
-    * Using lucky slots ensures that we don't disclose any system-specific usage patterns (such as
-    * automatic metadata updates scheduled to occur every N days) which could be used to identify
-    * this system over multiple check-in records by correlating them based on time commonalities.
+    * 1) The time window is aligned with an absolute point in time (CHECK_IN_OFFSET) rather than
+    *    with the first check-in of this machine:
     *
-    * The reason we pre-generate the lucky slots instead of simply "flipping a coin" on every
-    * method call is to "reward" systems with a long uptime (since the probability of hitting a
-    * lucky slot increases with every slot lived through).
+    *    UNIX epoch                    now
+    *    |                             |
+    *    |---*-----|-----|-----|-----[-*---]---> time
+    *        |                       |
+    *        CHECK_IN_OFFSET         window
     *
-    * The parameter added to the HTTP request is an integer representing the current window index
-    * (that is, the number of windows elapsed since the very first check-in).  However, for privacy
-    * reasons, values equal or higher than CHECK_IN_CUTOFF are reported as CHECK_IN_CUTOFF+.
+    * 2) Check-in is only allowed when the DNF_INVOCATION environment variable is set to "random".
+    *    This value indicates that the current DNF run was triggered by a (seemingly) random event
+    *    whose timing does not exhibit obvious regularities.  For example, a manual invocation by
+    *    the user or a regular timer-based event whose instances are randomly stretched in time,
+    *    both qualify as "random" events.  Since this is impossible to detect automatically, this
+    *    variable is best set by the caller.
+    *
+    * TODO clarify (what are they, really?)
+    * 3) Check-in is only allowed within "lucky" time slots, to .  These slots are generated in advance
+    *    for every time window by dividing it into equal-sized chunks and randomly marking a fixed
+    *    amount of them as "lucky" (CHECK_IN_LUCKY).  As opposed to simply "flipping a coin" on
+    *    every method call, this approach has the advantage of "rewarding" systems with long uptime
+    *    (since the probability of hitting a lucky slot increases with every slot lived through).
+    *
+    * TODO write
+    * 4) CHECK_IN_CUTOFF
     *
     * @return bool whether a successful check-in was performed
     */

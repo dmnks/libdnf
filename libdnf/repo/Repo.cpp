@@ -49,8 +49,8 @@
 #define CHECK_IN_BLOCK (24)  // 1 day
 // lucky slots per block
 #define CHECK_IN_LUCKY (8)
-// filename of the check-in cache file
-#define CHECK_IN_CACHE "check_in"
+// filename of the check-in cookie file
+#define CHECK_IN_COOKIE "check_in"
 // URL query parameter to store the window index into
 #define CHECK_IN_PARAM "countme"
 // maximum number of windows to report
@@ -496,13 +496,15 @@ void set_random_bits(std::bitset<N> &bs, int count) {
 
 bool Repo::Impl::checkIn()
 {
+    // basic sanity checks
     if (!conf->countme().getValue()) return false;
+    if (getenv("DNF_EXEC_CONTEXT") != "random-timer") return false;
 
     // load the cache file
     time_t epoch = 0;               // position of first-ever checked-in window
     time_t pos = CHECK_IN_OFFSET;   // position of last checked-in window
     std::bitset<CHECK_IN_WINDOW> window; window.set();
-    std::string fname = getPersistdir() + "/" + CHECK_IN_CACHE;
+    std::string fname = getPersistdir() + "/" + CHECK_IN_COOKIE;
     std::ifstream(fname) >> epoch >> pos >> window;
 
     // bail out if the window has not advanced since
@@ -1122,6 +1124,7 @@ bool Repo::Impl::isMetalinkInSync()
         dnf_remove_recursive(tmpdir, NULL);
     });
 
+    checkIn();
     std::unique_ptr<LrHandle> h(lrHandleInitRemote(tmpdir));
 
     handleSetOpt(h.get(), LRO_FETCHMIRRORS, 1L);
