@@ -71,7 +71,6 @@
 #include "goal/Goal.hpp"
 #include "plugin/plugin-private.hpp"
 #include "module/modulemd/ModuleDefaultsContainer.hpp"
-#include "utils/os-release.hpp"
 
 
 #define MAX_NATIVE_ARCHES    12
@@ -265,7 +264,7 @@ dnf_context_init(DnfContext *context)
     priv->cache_age = 60 * 60 * 24 * 7; /* 1 week */
     priv->override_macros = g_hash_table_new_full(g_str_hash, g_str_equal,
                                                   g_free, g_free);
-    priv->user_agent = g_strdup(libdnf::getUserAgent().c_str());
+    priv->user_agent = g_strdup("libdnf/" PACKAGE_VERSION);
 
     priv->vars = new std::map<std::string, std::string>;
 

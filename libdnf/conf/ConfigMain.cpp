@@ -21,7 +21,6 @@
 #include "ConfigMain.hpp"
 #include "Const.hpp"
 #include "Config-private.hpp"
-#include "libdnf/utils/os-release.hpp"
 #include "utils.hpp"
 
 #include <algorithm>
@@ -276,9 +275,6 @@ class ConfigMain::Impl {
     OptionBool ignorearch{false};
     OptionString module_platform_id{nullptr};
 
-    OptionString user_agent{getUserAgent()};
-    OptionBool countme{false};
-
     // Repo main config
 
     OptionNumber<std::uint32_t> retries{10};
@@ -427,8 +423,6 @@ ConfigMain::Impl::Impl(Config & owner)
     owner.optBinds().add("comment", comment);
     owner.optBinds().add("ignorearch", ignorearch);
     owner.optBinds().add("module_platform_id", module_platform_id);
-    owner.optBinds().add("user_agent", user_agent);
-    owner.optBinds().add("countme", countme);
 
     // Repo main config
 
@@ -558,8 +552,6 @@ OptionBool & ConfigMain::downloadonly() { return pImpl->downloadonly; }
 OptionBool & ConfigMain::ignorearch() { return pImpl->ignorearch; }
 
 OptionString & ConfigMain::module_platform_id() { return pImpl->module_platform_id; }
-OptionString & ConfigMain::user_agent() { return pImpl->user_agent; }
-OptionBool & ConfigMain::countme() { return pImpl->countme; }
 
 // Repo main config
 OptionNumber<std::uint32_t> & ConfigMain::retries() { return pImpl->retries; }

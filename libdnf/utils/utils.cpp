@@ -18,7 +18,6 @@ extern "C" {
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include <random>
 
 namespace libdnf {
 
@@ -311,15 +310,6 @@ void decompress(const char * inPath, const char * outPath, mode_t outMode, const
     fclose(inFile);
 }
 
-}
-
-namespace numeric {
-int random(const int min, const int max) {
-    std::random_device rd;
-    std::default_random_engine gen(rd());
-    std::uniform_int_distribution<int> dist(min, max);
-    return dist(gen);
-}
 }
 
 }

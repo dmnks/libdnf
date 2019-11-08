@@ -122,7 +122,6 @@ public:
     bool isExpired() const;
     int getExpiresIn() const;
     void downloadUrl(const char * url, int fd);
-    void addCountmeFlag(LrHandle *handle);
     void setHttpHeaders(const char * headers[]);
     const char * const * getHttpHeaders() const;
     const std::string & getMetadataPath(const std::string &metadataType) const;

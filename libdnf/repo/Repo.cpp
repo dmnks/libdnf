@@ -23,6 +23,7 @@
 #define METALINK_FILENAME "metalink.xml"
 #define MIRRORLIST_FILENAME  "mirrorlist"
 #define RECOGNIZED_CHKSUMS {"sha512", "sha256"}
+#define USER_AGENT "libdnf"
 
 #include "../log.hpp"
 #include "Repo-private.hpp"
@@ -35,7 +36,6 @@
 #include "../hy-types.h"
 #include "libdnf/utils/File.hpp"
 #include "libdnf/utils/utils.hpp"
-#include "libdnf/utils/os-release.hpp"
 
 #include "bgettext/bgettext-lib.h"
 #include "tinyformat/tinyformat.hpp"
@@ -54,7 +54,6 @@
 #include <solv/repo.h>
 #include <solv/util.h>
 
-#include <array>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -73,26 +72,6 @@
 #include <time.h>
 
 #include <glib.h>
-
-//
-// COUNTME CONSTANTS
-//
-// width of the sliding time window (in seconds)
-const int COUNTME_WINDOW = 7*24*60*60;  // 1 week
-// starting point of the sliding time window relative to the UNIX epoch
-// allows for aligning the window with a specific weekday
-const int COUNTME_OFFSET = 345600;  // Monday (1970-01-05 00:00:00 UTC)
-// estimated number of metalink requests sent over the window
-// used to generate the probability distribution of counting events
-const int COUNTME_BUDGET = 4;  // metadata_expire defaults to 2 days
-// cookie file name
-const std::string COUNTME_COOKIE = "countme";
-// cookie file format version
-const int COUNTME_VERSION = 0;
-// longevity buckets that we report in the flag
-// example: {A, B, C} defines 4 buckets [0, A), [A, B), [B, C), [C, infinity)
-// where each letter represents a window step (starting from 0)
-const std::array<const int, 3> COUNTME_BUCKETS = { {2, 5, 25} };
 
 namespace std {
 
@@ -485,7 +464,7 @@ std::unique_ptr<LrHandle> Repo::Impl::lrHandleInitBase()
     dlist.push_back(NULL);
     handleSetOpt(h.get(), LRO_PRESERVETIME, static_cast<long>(preserveRemoteTime));
     handleSetOpt(h.get(), LRO_REPOTYPE, LR_YUMREPO);
-    handleSetOpt(h.get(), LRO_USERAGENT, conf->user_agent().getValue().c_str());
+    handleSetOpt(h.get(), LRO_USERAGENT, USER_AGENT);
     handleSetOpt(h.get(), LRO_YUMDLIST, dlist.data());
     handleSetOpt(h.get(), LRO_INTERRUPTIBLE, 1L);
     handleSetOpt(h.get(), LRO_GPGCHECK, conf->repo_gpgcheck().getValue());
@@ -933,8 +912,6 @@ std::unique_ptr<LrResult> Repo::Impl::lrHandlePerform(LrHandle * handle, const s
     LrProgressCb progressFunc;
     handleGetInfo(handle, LRI_PROGRESSCB, &progressFunc);
 
-    addCountmeFlag(handle);
-
     std::unique_ptr<LrResult> result;
     bool ret;
     bool badGPG = false;
@@ -1046,100 +1023,6 @@ bool Repo::Impl::loadCache(bool throwExcept)
     g_strfreev(this->mirrors);
     this->mirrors = mirrors;
     return true;
-}
-
-void Repo::Impl::addCountmeFlag(LrHandle *handle) {
-    /*
-     * The countme flag will be added once (and only once) in every position of
-     * a sliding time window (COUNTME_WINDOW) that starts at COUNTME_OFFSET and
-     * moves along the time axis, by one length at a time, in such a way that
-     * the current point in time always stays within:
-     *
-     * UNIX epoch                    now
-     * |                             |
-     * |---*-----|-----|-----|-----[-*---]---> time
-     *     |                       ~~~~~~~
-     *     COUNTME_OFFSET          COUNTME_WINDOW
-     *
-     * This is to align the time window with an absolute point in time rather
-     * than the last counting event (which could facilitate tracking across
-     * multiple such events).
-     */
-    auto logger(Log::getLogger());
-
-    // Bail out if not counting or not running as root (since the persistdir is
-    // only root-writable)
-    if (!conf->countme().getValue() || getuid() != 0)
-        return;
-
-    // Bail out if not a remote handle
-    long local;
-    handleGetInfo(handle, LRI_LOCAL, &local);
-    if (local)
-        return;
-
-    // Bail out if no metalink or mirrorlist is defined
-    auto & metalink = conf->metalink();
-    auto & mirrorlist = conf->mirrorlist();
-    if ((metalink.empty()   || metalink.getValue().empty()) &&
-        (mirrorlist.empty() || mirrorlist.getValue().empty()))
-        return;
-
-    // Load the cookie
-    std::string fname = getPersistdir() + "/" + COUNTME_COOKIE;
-    int ver = COUNTME_VERSION;      // file format version (for future use)
-    time_t epoch = 0;               // position of first-ever counted window
-    time_t win = COUNTME_OFFSET;    // position of last counted window
-    int budget = -1;                // budget for this window (-1 = generate)
-    std::ifstream(fname) >> ver >> epoch >> win >> budget;
-
-    // Bail out if the window has not advanced since
-    time_t now = time(NULL);
-    time_t delta = now - win;
-    if (delta < COUNTME_WINDOW) {
-        logger->debug(tfm::format("countme: no event for %s: window already counted", id));
-        return;
-    }
-
-    // Evenly distribute the probability of the counting event over the first N
-    // requests in this window (where N = COUNTME_BUDGET), by defining a random
-    // "budget" of ordinary requests that we first have to spend.  This ensures
-    // that no particular request is special and thus no privacy loss is
-    // incurred by adding the flag within N requests.
-    if (budget < 0)
-        budget = numeric::random(1, COUNTME_BUDGET);
-    budget--;
-    if (!budget) {
-        // Budget exhausted, counting!
-
-        // Compute the position of this window
-        win = now - (delta % COUNTME_WINDOW);
-        if (!epoch)
-            epoch = win;
-        // Window step (0 at epoch)
-        int step = (win - epoch) / COUNTME_WINDOW;
-
-        // Compute the bucket we are in
-        unsigned int i;
-        for (i = 0; i < COUNTME_BUCKETS.size(); ++i)
-            if (step < COUNTME_BUCKETS[i])
-                break;
-        int bucket = i + 1;  // Buckets are indexed from 1
-
-        // Set the flag
-        std::string flag = "countme=" + std::to_string(bucket);
-        handleSetOpt(handle, LRO_ONETIMEFLAG, flag.c_str());
-        logger->debug(tfm::format("countme: event triggered for %s: bucket %i", id, bucket));
-
-        // Request a new budget
-        budget = -1;
-    } else {
-        logger->debug(tfm::format("countme: no event for %s: budget to spend: %i", id, budget));
-    }
-
-    // Save the cookie
-    std::ofstream(fname) << COUNTME_VERSION << " " << epoch << " " << win
-                         << " " << budget;
 }
 
 // Use metalink to check whether our metadata are still current.
@@ -1685,10 +1568,9 @@ int PackageTarget::Impl::mirrorFailureCB(void * data, const char * msg, const ch
 static LrHandle * newHandle(ConfigMain * conf)
 {
     LrHandle *h = lr_handle_init();
-    const char * user_agent = USER_AGENT;
+    handleSetOpt(h, LRO_USERAGENT, USER_AGENT);
     // see dnf.repo.Repo._handle_new_remote() how to pass
     if (conf) {
-        user_agent = conf->user_agent().getValue().c_str();
         auto minrate = conf->minrate().getValue();
         handleSetOpt(h, LRO_LOWSPEEDLIMIT, static_cast<long>(minrate));
 
@@ -1726,7 +1608,6 @@ static LrHandle * newHandle(ConfigMain * conf)
         handleSetOpt(h, LRO_SSLVERIFYHOST, sslverify);
         handleSetOpt(h, LRO_SSLVERIFYPEER, sslverify);
     }
-    handleSetOpt(h, LRO_USERAGENT, user_agent);
     return h;
 }
 
